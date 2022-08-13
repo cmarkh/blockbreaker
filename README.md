@@ -1,1 +1,5 @@
-Just a bouncing ball running in the terminal at the moment. 
+Brick Breaker running in the terminal. 
+
+To use run `go install github.com/cmarkh/brickbreaker`
+
+Work in progress. 
