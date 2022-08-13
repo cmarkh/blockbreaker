@@ -2,6 +2,7 @@ package blockbreaker
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 type Game struct {
 	Screen tcell.Screen
 	Style  tcell.Style
+	Frames int //number of frames since game started
 	Size   Size
 	Round  int
 	Speed  time.Duration //sets the speed of the game loop. each loop contains one ball move so faster loop = faster ball
@@ -36,43 +38,64 @@ func Start() (err error) {
 	game := NewGame(screen)
 	go game.Loop()
 
-	for x := -1; ; x++ {
+	for {
 		switch event := screen.PollEvent().(type) {
 		case *tcell.EventResize:
-			tcell.NewEventResize(10, 20)
 			screen.Sync()
 		case *tcell.EventKey:
 			if event.Key() == tcell.KeyEscape || event.Key() == tcell.KeyCtrlC {
 				screen.Fini()
 				os.Exit(0)
 			}
+			keyspeed := 3
+			if event.Key() == tcell.KeyLeft {
+				game.Paddle.X -= keyspeed
+				if game.Paddle.X-game.Paddle.XOffset-2 < 0 {
+					game.Paddle.X = game.Paddle.XOffset
+				}
+			}
+			if event.Key() == tcell.KeyRight {
+				game.Paddle.X += keyspeed
+				if game.Paddle.X+game.Paddle.XOffset > game.Size.Width {
+					game.Paddle.X = game.Size.Width - game.Paddle.XOffset
+				}
+			}
 		}
 	}
 }
 
 func (g *Game) Loop() {
-
 	ticker := time.NewTicker(g.Speed)
 
-	for x := 0; ; x++ {
+	for {
 		g.Screen.Clear()
 
 		g.Borders()
 		g.Screen.SetContent(g.Size.StartX, g.Size.Height+1,
 			[]rune(fmt.Sprintf("Round %d", g.Round))[0], []rune(fmt.Sprintf("Round %d", g.Round))[1:],
 			g.Style)
-		g.Screen.SetContent(g.Size.Width+1-len(fmt.Sprint(x+1)), g.Size.Height+1,
-			[]rune(fmt.Sprint(x + 1))[0], []rune(fmt.Sprint(x + 1))[1:], g.Style)
+		frames := fmt.Sprint(g.Frames)
+		g.Screen.SetContent(g.Size.Width+1-len(frames), g.Size.Height+1,
+			[]rune(frames)[0], []rune(frames)[1:], g.Style)
+		ballPos := fmt.Sprintf("(%d,%d)", g.Ball.X, g.Ball.Y)
+		g.Screen.SetContent((g.Size.Width-len(ballPos))-len(frames)-1, g.Size.Height+1,
+			[]rune(ballPos)[0], []rune(ballPos)[1:], g.Style)
 
-		g.Ball.CheckEdges(g.Size) //g.Screen.Size()
-		g.Ball.Move()
 		g.Screen.SetContent(g.Ball.X, g.Ball.Y, g.Ball.Form, nil, g.Style)
-
-		g.Screen.SetContent(g.Paddle.X, g.Paddle.Y, g.Paddle.Form[0], g.Paddle.Form[1:], g.Style)
+		g.Screen.SetContent(g.Paddle.X-g.Paddle.XOffset, g.Paddle.Y, g.Paddle.Form[0], g.Paddle.Form[1:], g.Style)
 
 		g.Screen.Show()
 
-		time.Sleep(time.Second / 2)
+		if g.GameOver() {
+			continue
+		}
+		g.CheckEdges()
+
+		g.Ball.Move()
+
+		g.Frames++
+
+		//time.Sleep(time.Second / 2)
 
 		<-ticker.C //maintain max speed of game loop
 	}
@@ -82,23 +105,29 @@ func NewGame(s tcell.Screen) (game *Game) {
 	game = &Game{
 		Screen: s,
 		Style:  tcell.StyleDefault.Background(tcell.ColorDefault).Foreground(tcell.ColorDefault),
+		Frames: 0,
 		Size:   Size{80, 25, 0, 0},
 		Round:  1,
-		Speed:  time.Millisecond * 40,
+		Speed:  time.Millisecond * 60,
 		Ball: Ball{
 			XSpeed: 1,
-			YSpeed: 1,
+			YSpeed: 1, //YSpeed will change to -1 on the very first round b/c ball starts touching the paddle
 			Form:   '\u25CF',
 		},
-		Paddle: Paddle{
-			Form: [3]Rune{'\u0258', '\u0258', '\u0258'},
-		},
+		Paddle: NewPaddle(7),
 	}
-	game.Ball.X = game.Size.Width / 2
-	game.Ball.Y = game.Size.Height - 1
 
-	game.Paddle.X = game.Size.Width / 2
+	game.Paddle.X = game.Size.Width/2 + 1
 	game.Paddle.Y = game.Size.Height - 1
+
+	game.Ball.X = game.Paddle.X
+	game.Ball.Y = game.Paddle.Y
+
+	//randomly start with ball going left or right
+	rand.Seed(time.Now().UnixNano())
+	if rand.Intn(2) == 0 {
+		game.Ball.XSpeed *= -1
+	}
 
 	game.Screen.SetStyle(game.Style)
 
